@@ -39,8 +39,14 @@ do
       && [[ "$db" != _* ]]
   then
     echo "INFO: Dumping database '$db'"
-    FILENAME=/backup/$DATE.$db.sql
-    LATEST=/backup/latest.$db.sql
+    if [ "$MAX_BACKUPS" -ne 1 ]
+    then
+      FILENAME=/backup/$DATE.$db.sql
+      LATEST=/backup/latest.$db.sql
+    else
+      FILENAME=/backup/$db.sql
+    fi
+    
     if mysqldump --single-transaction $MYSQLDUMP_OPTS -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" $MYSQL_SSL_OPTS "$db" > "$FILENAME"
     then
       EXT=
@@ -52,19 +58,23 @@ do
         FILENAME=$FILENAME$EXT
         LATEST=$LATEST$EXT
       fi
-      BASENAME=$(basename "$FILENAME")
-      echo "INFO: Creating symlink to latest backup: $BASENAME"
-      rm "$LATEST" 2> /dev/null
-      cd /backup || exit && ln -s "$BASENAME" "$(basename "$LATEST")"
-      if [ -n "$MAX_BACKUPS" ]
+
+      if [ "$MAX_BACKUPS" -ne 1 ]
       then
-        while [ "$(find /backup -maxdepth 1 -name "*.$db.sql$EXT" -type f | wc -l)" -gt "$MAX_BACKUPS" ]
-        do
-          TARGET=$(find /backup -maxdepth 1 -name "*.$db.sql$EXT" -type f | sort | head -n 1)
-          echo "INFO: Max number of ($MAX_BACKUPS) backups reached. Deleting ${TARGET} ..."
-          rm -rf "${TARGET}"
-          echo "INFO: ${TARGET} deleted."
-        done
+        BASENAME=$(basename "$FILENAME")
+        echo "INFO: Creating symlink to latest backup: $BASENAME"
+        rm "$LATEST" 2> /dev/null
+        cd /backup || exit && ln -s "$BASENAME" "$(basename "$LATEST")"
+        if [ -n "$MAX_BACKUPS" ]
+        then
+          while [ "$(find /backup -maxdepth 1 -name "*.$db.sql$EXT" -type f | wc -l)" -gt "$MAX_BACKUPS" ]
+          do
+            TARGET=$(find /backup -maxdepth 1 -name "*.$db.sql$EXT" -type f | sort | head -n 1)
+            echo "INFO: Max number of ($MAX_BACKUPS) backups reached. Deleting ${TARGET} ..."
+            rm -rf "${TARGET}"
+            echo "INFO: ${TARGET} deleted."
+          done
+        fi
       fi
     else
       ERROR_CODE=1
