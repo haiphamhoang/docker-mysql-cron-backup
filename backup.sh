@@ -16,8 +16,20 @@
 [ -z "${GZIP_LEVEL}" ] && { GZIP_LEVEL=6; }
 
 DATE=$(date +%Y%m%d%H%M)
-echo "=> Backup started at $(date "+%Y-%m-%d %H:%M:%S")"
+BEAUTIFUL_DATE=$(date "+%Y-%m-%d %H:%M:%S")
+echo "$BEAUTIFUL_DATE  Backup starting..."
+
+# Signal start to healthchecks.io
+if [ ! -z "$HEALTHCHECK_URL" ]
+then
+  echo "INFO: sending start signal to healthchecks.io"
+  wget -q $HEALTHCHECK_URL/start -O /dev/null
+fi
+
 DATABASES=${MYSQL_DATABASE:-${MYSQL_DB:-$(mysql -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" $MYSQL_SSL_OPTS -e "SHOW DATABASES;" | tr -d "| " | grep -v Database)}}
+ERROR_CODE=$?
+ERROR_LOG="Can't connect to Database server."
+
 for db in ${DATABASES}
 do
   if  [[ "$db" != "information_schema" ]] \
@@ -26,7 +38,7 @@ do
       && [[ "$db" != "sys" ]] \
       && [[ "$db" != _* ]]
   then
-    echo "==> Dumping database: $db"
+    echo "INFO: Dumping database '$db'"
     FILENAME=/backup/$DATE.$db.sql
     LATEST=/backup/latest.$db.sql
     if mysqldump --single-transaction $MYSQLDUMP_OPTS -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -p"$MYSQL_PASS" $MYSQL_SSL_OPTS "$db" > "$FILENAME"
@@ -34,14 +46,14 @@ do
       EXT=
       if [ -z "${USE_PLAIN_SQL}" ]
       then
-        echo "==> Compressing $db with LEVEL $GZIP_LEVEL"
+        echo "INFO: Compressing $db with LEVEL $GZIP_LEVEL"
         gzip "-$GZIP_LEVEL" -f "$FILENAME"
         EXT=.gz
         FILENAME=$FILENAME$EXT
         LATEST=$LATEST$EXT
       fi
       BASENAME=$(basename "$FILENAME")
-      echo "==> Creating symlink to latest backup: $BASENAME"
+      echo "INFO: Creating symlink to latest backup: $BASENAME"
       rm "$LATEST" 2> /dev/null
       cd /backup || exit && ln -s "$BASENAME" "$(basename "$LATEST")"
       if [ -n "$MAX_BACKUPS" ]
@@ -49,14 +61,31 @@ do
         while [ "$(find /backup -maxdepth 1 -name "*.$db.sql$EXT" -type f | wc -l)" -gt "$MAX_BACKUPS" ]
         do
           TARGET=$(find /backup -maxdepth 1 -name "*.$db.sql$EXT" -type f | sort | head -n 1)
-          echo "==> Max number of ($MAX_BACKUPS) backups reached. Deleting ${TARGET} ..."
+          echo "INFO: Max number of ($MAX_BACKUPS) backups reached. Deleting ${TARGET} ..."
           rm -rf "${TARGET}"
-          echo "==> Backup ${TARGET} deleted"
+          echo "INFO: ${TARGET} deleted."
         done
       fi
     else
+      ERROR_CODE=1
+      ERROR_LOG="mysqldump got error, please check container logs for more details."
       rm -rf "$FILENAME"
     fi
   fi
 done
-echo "=> Backup process finished at $(date "+%Y-%m-%d %H:%M:%S")"
+
+# healthchecks.io call with complete or failure signal.
+if [ ! -z "$HEALTHCHECK_URL" ]
+then
+  if [ "$ERROR_CODE" == 0 ]
+  then
+    echo "INFO: sending Success signal to healthchecks.io"
+    wget -q "$HEALTHCHECK_URL" -O /dev/null --post-data="$BEAUTIFUL_DATE: SUCCESS"
+  else
+    echo "INFO: sending Failure signal to healthchecks.io"
+    #Sending  signal to healthchecks.io"
+    wget -q "$HEALTHCHECK_URL/fail" -O /dev/null --post-data="$BEAUTIFUL_DATE ERROR: $ERROR_LOG"
+  fi
+fi
+
+echo "$BEAUTIFUL_DATE Backup process finished."
