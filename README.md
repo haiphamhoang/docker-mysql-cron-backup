@@ -35,6 +35,7 @@ docker container run -d \
 - `GZIP_LEVEL`: Specify the level of gzip compression from 1 (quickest, least compressed) to 9 (slowest, most compressed), default is 6.
 - `USE_PLAIN_SQL`: If set, back up and restore plain SQL files without gzip.
 - `TZ`: Specify TIMEZONE in Container. E.g. "Europe/Berlin". Default is UTC.
+- `HEALTHCHECK_URL`:  healthchecks.io url or similar cron monitoring to perform a GET after a successful backup database
 
 If you want to make this image the perfect companion of your MySQL container, use [docker-compose](https://docs.docker.com/compose/). You can add more services that will be able to connect to the MySQL image using the name `my_mariadb`, note that you only expose the port `3306` internally to the servers and not to the host:
 
